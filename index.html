@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shoot Marcus the Worm - Movement Update</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 24px;
+            height: 24px;
+            background: transparent;
+            border: 3px solid white;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        #crosshair::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 4px;
+            height: 4px;
+            background: red;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        #minimap {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 150px;
+            height: 150px;
+            background: rgba(0, 20, 0, 0.5);
+            border: 2px solid #00ff00;
+            border-radius: 10px;
+        }
+
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 2px 2px 0 #000;
+        }
+
+        #menu {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            pointer-events: auto;
+        }
+
+        h1 {
+            font-size: 48px;
+            color: #ffeb3b;
+            margin-bottom: 10px;
+            text-shadow: 0 0 10px #ff9800;
+            text-align: center;
+        }
+
+        .stats {
+            font-size: 24px;
+            margin-bottom: 30px;
+        }
+
+        .shop {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .shop-item {
+            background: #333;
+            padding: 20px;
+            border: 2px solid #555;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .shop-item button {
+            display: block;
+            width: 100%;
+            margin-top: 10px;
+            padding: 10px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        .shop-item button:hover {
+            background: #45a049;
+        }
+
+        .shop-item button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+
+        #play-btn {
+            padding: 15px 40px;
+            font-size: 28px;
+            background: #f44336;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        #play-btn:hover {
+            background: #d32f2f;
+        }
+
+        .instructions {
+            margin-top: 20px;
+            color: #aaa;
+            font-size: 14px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+</script>
+</head>
+
+<body>
+
+    <div id="ui-layer">
+        <div id="hud" class="hidden">
+            Score: <span id="hud-score">0</span><br>
+            Coins: <span id="hud-coins">0</span>
+        </div>
+        <div id="crosshair" class="hidden"></div>
+        <canvas id="minimap" class="hidden" width="150" height="150"></canvas>
+    </div>
+
+    <div id="menu">
+        <h1>SHOOT MARCUS THE WORM</h1>
+        <div class="stats">
+            Coins: <span id="menu-coins" style="color:#ffeb3b;">0</span> | High Score: <span id="menu-highscore"
+                style="color:#4caf50;">0</span>
+        </div>
+
+        <h2>UPGRADE SHOP</h2>
+        <div class="shop">
+            <div class="shop-item">
+                <h3>Fire Rate</h3>
+                <p>Level: <span id="lvl-fire">1</span></p>
+                <button id="btn-fire" onclick="buyUpgrade('fireRate')">Buy (50 Coins)</button>
+            </div>
+            <div class="shop-item">
+                <h3>Coin Multiplier</h3>
+                <p>Level: <span id="lvl-coin">1</span></p>
+                <button id="btn-coin" onclick="buyUpgrade('coinMult')">Buy (100 Coins)</button>
+            </div>
+        </div>
+
+        <button id="play-btn">START SURVIVAL</button>
+        <p class="instructions">WASD to Move | Mouse to Look | Click to Shoot</p>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+
+
+        window.gameState = {
+            coins: parseInt(localStorage.getItem('marcus_coins')) || 0,
+            highScore: parseInt(localStorage.getItem('marcus_highscore')) || 0,
+            score: 0,
+            isRunning: false,
+            lastShotTime: 0,
+            upgrades: {
+                fireRate: parseInt(localStorage.getItem('marcus_upg_fire')) || 1,
+                coinMult: parseInt(localStorage.getItem('marcus_upg_coin')) || 1
+            },
+            prices: { fireRate: 50, coinMult: 100 }
+        };
+
+        const worms = [];
+        let marcusModel = null;
+
+
+        const menu = document.getElementById('menu');
+        const hud = document.getElementById('hud');
+        const crosshair = document.getElementById('crosshair');
+        const playBtn = document.getElementById('play-btn');
+        const minimapCanvas = document.getElementById('minimap');
+        const minimapCtx = minimapCanvas.getContext('2d');
+
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playShootSound() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(110, audioCtx.currentTime + 0.1);
+
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.1);
+        }
+
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x111111);
+        scene.fog = new THREE.Fog(0x111111, 10, 80);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.y = 2;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new PointerLockControls(camera, document.body);
+
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+        dirLight.position.set(10, 20, 10);
+        scene.add(dirLight);
+
+        const gridHelper = new THREE.GridHelper(200, 200, 0x555555, 0x222222);
+        scene.add(gridHelper);
+
+
+        const loader = new GLTFLoader();
+        loader.load('models/marcus.glb', function (gltf) {
+            const rawModel = gltf.scene;
+
+
+            const box = new THREE.Box3().setFromObject(rawModel);
+            const size = box.getSize(new THREE.Vector3());
+            const center = box.getCenter(new THREE.Vector3());
+
+
+            marcusModel = new THREE.Group();
+
+
+            rawModel.position.x = -center.x;
+            rawModel.position.y = -center.y;
+            rawModel.position.z = -center.z;
+
+
+            const maxDimension = Math.max(size.x, size.y, size.z);
+            const perfectScale = 3 / maxDimension;
+
+
+            marcusModel.scale.set(perfectScale, perfectScale, perfectScale);
+            marcusModel.add(rawModel);
+
+
+            marcusModel.traverse((node) => {
+                if (node.isMesh) {
+                    node.material.roughness = 0.9;
+                    node.material.metalness = 0.1;
+                }
+            });
+
+            console.log("Marcus Auto-Scaled and Centered!");
+        }, undefined, function (error) {
+            console.warn("Could not find marcus.glb.", error);
+        });
+
+
+        const moveState = { forward: false, backward: false, left: false, right: false };
+        const velocity = new THREE.Vector3();
+        const direction = new THREE.Vector3();
+
+        document.addEventListener('keydown', (event) => {
+            switch (event.code) {
+                case 'KeyW': moveState.forward = true; break;
+                case 'KeyA': moveState.left = true; break;
+                case 'KeyS': moveState.backward = true; break;
+                case 'KeyD': moveState.right = true; break;
+            }
+        });
+
+        document.addEventListener('keyup', (event) => {
+            switch (event.code) {
+                case 'KeyW': moveState.forward = false; break;
+                case 'KeyA': moveState.left = false; break;
+                case 'KeyS': moveState.backward = false; break;
+                case 'KeyD': moveState.right = false; break;
+            }
+        });
+
+        function spawnWorm() {
+            if (!gameState.isRunning) return;
+
+            const hitGeo = new THREE.CylinderGeometry(1, 1, 5, 8);
+            const hitMat = new THREE.MeshBasicMaterial({
+                color: 0xff0000,
+                wireframe: true,
+                visible: false,
+            });
+            const hitbox = new THREE.Mesh(hitGeo, hitMat);
+
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 40 + Math.random() * 20;
+            hitbox.position.x = camera.position.x + Math.cos(angle) * radius;
+            hitbox.position.z = camera.position.z + Math.sin(angle) * radius;
+            hitbox.position.y = 2.5;
+
+            if (marcusModel) {
+                const visualWorm = SkeletonUtils.clone(marcusModel);
+                visualWorm.scale.set(2, 2, 2);
+
+                visualWorm.position.y = 0;
+
+                hitbox.add(visualWorm);
+            }
+
+            const maxHp = 3;
+            const healthBarGroup = new THREE.Group();
+            healthBarGroup.position.y = 3;
+
+            const bgGeo = new THREE.PlaneGeometry(3, 0.4);
+            const bgMat = new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide });
+            const bgBar = new THREE.Mesh(bgGeo, bgMat);
+
+            const fgGeo = new THREE.PlaneGeometry(3, 0.4);
+            const fgMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide });
+            const fgBar = new THREE.Mesh(fgGeo, fgMat);
+
+            fgBar.position.z = 0.05;
+
+            fgBar.name = "greenFill";
+
+            fgGeo.translate(1.5, 0, 0);
+            fgBar.position.x = -1.5;
+
+            healthBarGroup.add(bgBar);
+            healthBarGroup.add(fgBar);
+            hitbox.add(healthBarGroup);
+
+            hitbox.userData = {
+                isMarcus: true,
+                hp: maxHp,
+                maxHp: maxHp,
+                healthBar: healthBarGroup
+            };
+
+            scene.add(hitbox);
+            worms.push(hitbox);
+
+            const spawnRate = Math.max(400, 2000 - (gameState.score * 15));
+            setTimeout(spawnWorm, spawnRate);
+        }
+
+        const raycaster = new THREE.Raycaster();
+        const center = new THREE.Vector2(0, 0);
+
+        window.addEventListener('mousedown', () => {
+            if (!gameState.isRunning || !controls.isLocked) return;
+
+            const now = Date.now();
+            const cooldown = 1000 / (1 + (gameState.upgrades.fireRate * 0.5));
+
+            if (now - gameState.lastShotTime < cooldown) return;
+
+
+            gameState.lastShotTime = now;
+            playShootSound();
+
+
+            crosshair.style.transition = 'none';
+            crosshair.style.borderColor = 'red';
+            crosshair.style.transform = 'translate(-50%, -50%) scale(1.5)';
+
+
+            void crosshair.offsetWidth;
+
+            crosshair.style.transition = `all ${cooldown}ms linear`;
+            crosshair.style.borderColor = 'white';
+            crosshair.style.transform = 'translate(-50%, -50%) scale(1)';
+
+
+            raycaster.setFromCamera(center, camera);
+            const intersects = raycaster.intersectObjects(worms, false);
+
+            if (intersects.length > 0) {
+                let hitObject = intersects[0].object;
+
+                if (hitObject.userData.isMarcus) {
+
+
+                    if (hitObject.userData.hp === undefined) hitObject.userData.hp = 1;
+                    hitObject.userData.hp -= 1;
+
+
+                    if (hitObject.userData.healthBar && hitObject.userData.maxHp) {
+
+                        const fillPercent = Math.max(0.001, hitObject.userData.hp / hitObject.userData.maxHp);
+                        const greenBar = hitObject.userData.healthBar.getObjectByName("greenFill");
+
+                        if (greenBar) {
+                            greenBar.scale.x = fillPercent;
+                        }
+                    }
+
+
+                    if (hitObject.userData.hp <= 0) {
+                        scene.remove(hitObject);
+                        worms.splice(worms.indexOf(hitObject), 1);
+
+                        gameState.score += 10;
+                        gameState.coins += (5 * gameState.upgrades.coinMult);
+                        updateHUD();
+                    } else {
+
+                        hitObject.translateZ(-1.5);
+                    }
+                }
+            }
+        });
+
+
+        function drawMinimap() {
+
+            minimapCtx.clearRect(0, 0, 150, 150);
+
+
+            minimapCtx.fillStyle = '#00ffff';
+            minimapCtx.beginPath();
+            minimapCtx.arc(75, 75, 4, 0, Math.PI * 2);
+            minimapCtx.fill();
+
+
+            minimapCtx.strokeStyle = 'rgba(0, 255, 255, 0.5)';
+            minimapCtx.beginPath();
+            minimapCtx.moveTo(75, 75);
+
+            const camDir = new THREE.Vector3();
+            camera.getWorldDirection(camDir);
+            minimapCtx.lineTo(75 + (camDir.x * 20), 75 + (camDir.z * 20));
+            minimapCtx.stroke();
+
+
+            minimapCtx.fillStyle = '#ff0000';
+            worms.forEach(worm => {
+
+                const dx = worm.position.x - camera.position.x;
+                const dz = worm.position.z - camera.position.z;
+
+
+                const mapX = 75 + (dx * 1.5);
+                const mapY = 75 + (dz * 1.5);
+
+
+                if (mapX > 0 && mapX < 150 && mapY > 0 && mapY < 150) {
+                    minimapCtx.beginPath();
+                    minimapCtx.arc(mapX, mapY, 3, 0, Math.PI * 2);
+                    minimapCtx.fill();
+                }
+            });
+        }
+
+
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (gameState.isRunning) {
+                const delta = clock.getDelta();
+
+
+                velocity.x -= velocity.x * 10.0 * delta;
+                velocity.z -= velocity.z * 10.0 * delta;
+
+                direction.z = Number(moveState.forward) - Number(moveState.backward);
+                direction.x = Number(moveState.right) - Number(moveState.left);
+                direction.normalize();
+
+                const moveSpeed = 100.0;
+                if (moveState.forward || moveState.backward) velocity.z -= direction.z * moveSpeed * delta;
+                if (moveState.left || moveState.right) velocity.x -= direction.x * moveSpeed * delta;
+
+                controls.moveRight(-velocity.x * delta);
+                controls.moveForward(-velocity.z * delta);
+
+
+
+                const wormSpeed = 3 + (gameState.score * 0.05);
+                for (let i = worms.length - 1; i >= 0; i--) {
+                    const worm = worms[i];
+                    worm.lookAt(camera.position.x, worm.position.y, camera.position.z);
+                    worm.translateZ(wormSpeed * delta);
+
+
+                    if (worm.userData.healthBar) {
+                        worm.userData.healthBar.lookAt(camera.position);
+                    }
+
+
+                    const dx = worm.position.x - camera.position.x;
+                    const dz = worm.position.z - camera.position.z;
+                    const flatDistance = Math.sqrt(dx * dx + dz * dz);
+
+
+                    if (flatDistance < 2) {
+                        gameOver();
+                    }
+                }
+
+                drawMinimap();
+            }
+
+            renderer.render(scene, camera);
+        }
+
+
+        playBtn.addEventListener('click', () => {
+            controls.lock();
+        });
+
+        controls.addEventListener('lock', () => {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            gameState.isRunning = true;
+            gameState.score = 0;
+            menu.classList.add('hidden');
+            hud.classList.remove('hidden');
+            crosshair.classList.remove('hidden');
+            minimapCanvas.classList.remove('hidden');
+            updateHUD();
+
+            worms.forEach(w => scene.remove(w));
+            worms.length = 0;
+            spawnWorm();
+        });
+
+        controls.addEventListener('unlock', () => {
+            if (gameState.isRunning) gameOver();
+        });
+
+        function gameOver() {
+            gameState.isRunning = false;
+            controls.unlock();
+
+            if (gameState.score > gameState.highScore) {
+                gameState.highScore = gameState.score;
+                localStorage.setItem('marcus_highscore', gameState.highScore);
+            }
+            localStorage.setItem('marcus_coins', gameState.coins);
+
+            menu.classList.remove('hidden');
+            hud.classList.add('hidden');
+            crosshair.classList.add('hidden');
+            minimapCanvas.classList.add('hidden');
+            updateMenuUI();
+        }
+
+
+        function updateHUD() {
+            document.getElementById('hud-score').innerText = gameState.score;
+            document.getElementById('hud-coins').innerText = gameState.coins;
+        }
+
+        window.updateMenuUI = function () {
+            document.getElementById('menu-coins').innerText = gameState.coins;
+            document.getElementById('menu-highscore').innerText = gameState.highScore;
+
+            document.getElementById('lvl-fire').innerText = gameState.upgrades.fireRate;
+            document.getElementById('lvl-coin').innerText = gameState.upgrades.coinMult;
+
+            const costFire = gameState.prices.fireRate * gameState.upgrades.fireRate;
+            const costCoin = gameState.prices.coinMult * gameState.upgrades.coinMult;
+
+            const btnFire = document.getElementById('btn-fire');
+            btnFire.innerText = `Buy (${costFire} Coins)`;
+            btnFire.disabled = gameState.coins < costFire;
+
+            const btnCoin = document.getElementById('btn-coin');
+            btnCoin.innerText = `Buy (${costCoin} Coins)`;
+            btnCoin.disabled = gameState.coins < costCoin;
+        };
+
+        window.buyUpgrade = function (type) {
+            const cost = gameState.prices[type] * gameState.upgrades[type];
+            if (gameState.coins >= cost) {
+                gameState.coins -= cost;
+                gameState.upgrades[type]++;
+
+                localStorage.setItem('marcus_coins', gameState.coins);
+                if (type === 'fireRate') localStorage.setItem('marcus_upg_fire', gameState.upgrades.fireRate);
+                if (type === 'coinMult') localStorage.setItem('marcus_upg_coin', gameState.upgrades.coinMult);
+
+                updateMenuUI();
+            }
+        };
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        updateMenuUI();
+        animate();
+    </script>
+</body>
+
+</html>

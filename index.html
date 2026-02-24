@@ -576,6 +576,14 @@
 
         controls.addEventListener('lock', () => {
             if (audioCtx.state === 'suspended') audioCtx.resume();
+
+            velocity.set(0, 0, 0);
+            moveState.forward = false; 
+            moveState.backward = false;
+            moveState.left = false;
+            moveState.right = false;
+            clock.getDelta(); 
+
             gameState.isRunning = true;
             gameState.score = 0;
             menu.classList.add('hidden');
@@ -586,6 +594,7 @@
 
             worms.forEach(w => scene.remove(w));
             worms.length = 0;
+            camera.position.set(0, 2, 0);
             spawnWorm();
         });
 
